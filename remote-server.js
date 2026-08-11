@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 8080);
+const HOST = process.env.HOST || "127.0.0.1";
 const rooms = new Map();
 const gameFile = path.join(__dirname, "kof97_98_style_fighter.html");
 
@@ -128,6 +129,11 @@ server.on("upgrade", (req, socket) => {
   });
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Fighter remote server listening on ws://0.0.0.0:${PORT}`);
+server.on("error", err => {
+  console.error(`Server failed: ${err.message}`);
+  if (err.code === "EPERM") console.error("Try another port, for example: PORT=8090 npm start");
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`Fighter remote server listening on ws://${HOST}:${PORT}`);
 });
