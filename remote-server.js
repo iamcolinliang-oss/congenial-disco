@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 8080);
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST || "0.0.0.0";
 const rooms = new Map();
 const gameFile = path.join(__dirname, "kof97_98_style_fighter.html");
 
@@ -75,16 +75,18 @@ function leave(socket) {
 }
 
 const server = http.createServer((req, res) => {
-  if (req.url === "/health") {
+  const pathname = new URL(req.url, "http://localhost").pathname;
+  if (pathname === "/health") {
+    const hasGameFile = fs.existsSync(gameFile);
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ ok: true, rooms: rooms.size, port: PORT }));
+    res.end(JSON.stringify({ ok: true, rooms: rooms.size, port: PORT, host: HOST, gameFile: hasGameFile }));
     return;
   }
-  if (req.url === "/" || req.url === "/game" || req.url === "/kof97_98_style_fighter.html") {
+  if (pathname === "/" || pathname === "/game" || pathname === "/kof97_98_style_fighter.html") {
     fs.readFile(gameFile, (err, data) => {
       if (err) {
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(`<h1>Fighter remote server</h1><p>WebSocket is running.</p><p>Put kof97_98_style_fighter.html beside remote-server.js to host the game page.</p><p>Health: <a href="/health">/health</a></p>`);
+        res.writeHead(500, { "content-type": "text/html; charset=utf-8" });
+        res.end(`<h1>游戏文件没有找到</h1><p>服务器已经启动，但没有在同一个仓库根目录找到 kof97_98_style_fighter.html。</p><p>请确认这个文件和 remote-server.js 放在一起。</p><p><a href="/health">查看健康检查</a></p>`);
         return;
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
