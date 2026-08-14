@@ -6,6 +6,7 @@ const path = require("path");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 const rooms = new Map();
+const scavPlayers = new Map();
 const gameFile = path.join(__dirname, "kof97_98_style_fighter.html");
 
 function send(ws, data) {
@@ -72,6 +73,7 @@ function leave(socket) {
   const peer = room.host || room.guest;
   if (peer) send(peer, { type: "error", message: "对手已离开房间" });
   if (!room.host && !room.guest) rooms.delete(code);
+  scavPlayers.delete(socket);
 }
 
 const server = http.createServer((req, res) => {
@@ -124,6 +126,39 @@ server.on("upgrade", (req, socket) => {
       socket.role = "guest";
       send(socket, { type: "joined", room: code });
       send(room.host, { type: "joined", room: code });
+      return;
+    }
+    if (msg.type === "scavJoin" || msg.type === "scavPos") {
+      socket.room = code;
+      scavPlayers.set(socket, {
+        id: String(socket.remotePort || Math.random()),
+        map: String(msg.map || ""),
+        name: String(msg.name || "玩家").slice(0, 20),
+        x: Number(msg.x || 0),
+        y: Number(msg.y || 0),
+        hp: Number(msg.hp || 100),
+        bag: Array.isArray(msg.bag) ? msg.bag.slice(0, 8) : [],
+        t: Date.now(),
+      });
+      const now = Date.now();
+      for (const [peer, p] of scavPlayers) {
+        if (now - p.t > 15000) scavPlayers.delete(peer);
+      }
+      const mine = scavPlayers.get(socket);
+      const players = [...scavPlayers.entries()]
+        .filter(([peer, p]) => peer !== socket && p.map === mine.map)
+        .map(([, p]) => p);
+      send(socket, { type: "scavPlayers", players });
+      return;
+    }
+    if (msg.type === "scavHit") {
+      const target = String(msg.target || "");
+      for (const [peer, p] of scavPlayers) {
+        if (p.id === target) {
+          send(peer, { type: "scavHit", damage: Number(msg.damage || 0), from: String(msg.from || "玩家").slice(0, 20) });
+          break;
+        }
+      }
       return;
     }
     const peer = socket === room.host ? room.guest : room.host;
