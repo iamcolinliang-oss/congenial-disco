@@ -60,7 +60,7 @@ function readFrames(socket, onText) {
 }
 
 function getRoom(code) {
-  if (!rooms.has(code)) rooms.set(code, { host: null, guest: null });
+  if (!rooms.has(code)) rooms.set(code, { host: null, guest: null, scavShared: {} });
   return rooms.get(code);
 }
 
@@ -72,8 +72,9 @@ function leave(socket) {
   if (room.guest === socket) room.guest = null;
   const peer = room.host || room.guest;
   if (peer) send(peer, { type: "error", message: "对手已离开房间" });
-  if (!room.host && !room.guest) rooms.delete(code);
   scavPlayers.delete(socket);
+  const hasScavPlayers = [...scavPlayers.keys()].some(peer => peer.room === code);
+  if (!room.host && !room.guest && !hasScavPlayers) rooms.delete(code);
 }
 
 const server = http.createServer((req, res) => {
@@ -116,6 +117,7 @@ server.on("upgrade", (req, socket) => {
       socket.room = code;
       socket.role = "host";
       send(socket, { type: "created", room: code });
+      send(socket, { type: "scavState", state: room.scavShared });
       if (room.guest) send(socket, { type: "joined", room: code });
       return;
     }
@@ -125,7 +127,13 @@ server.on("upgrade", (req, socket) => {
       socket.room = code;
       socket.role = "guest";
       send(socket, { type: "joined", room: code });
+      send(socket, { type: "scavState", state: room.scavShared });
       send(room.host, { type: "joined", room: code });
+      return;
+    }
+    if (msg.type === "scavSyncRequest") {
+      socket.room = code;
+      send(socket, { type: "scavState", state: room.scavShared });
       return;
     }
     if (msg.type === "scavJoin" || msg.type === "scavPos") {
@@ -149,6 +157,22 @@ server.on("upgrade", (req, socket) => {
         .filter(([peer, p]) => peer !== socket && p.map === mine.map)
         .map(([, p]) => p);
       send(socket, { type: "scavPlayers", players });
+      return;
+    }
+    if (msg.type === "scavChestOpen" || msg.type === "scavEnemyDead" || msg.type === "scavLooseTaken") {
+      const map = String(msg.map || "");
+      const id = String(msg.id || "");
+      if (!map || !id) return;
+      room.scavShared[map] ||= { chests: {}, enemies: {}, loose: {} };
+      if (msg.type === "scavChestOpen") room.scavShared[map].chests[id] = true;
+      if (msg.type === "scavEnemyDead") room.scavShared[map].enemies[id] = true;
+      if (msg.type === "scavLooseTaken") room.scavShared[map].loose[id] = true;
+      for (const peer of [room.host, room.guest]) {
+        if (peer && peer !== socket) send(peer, { type: msg.type, map, id });
+      }
+      for (const peer of scavPlayers.keys()) {
+        if (peer !== socket && peer.room === code) send(peer, { type: msg.type, map, id });
+      }
       return;
     }
     if (msg.type === "scavHit") {
